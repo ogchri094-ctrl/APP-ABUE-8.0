@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Abuelita - Clientes & Deudas</title>
+
+<!-- Remix Icons -->
+<link href="https://cdn.jsdelivr.net/npm/remixicon/fonts/remixicon.css" rel="stylesheet">
+
+<style>
+body{font-family:'Segoe UI',sans-serif;margin:0;padding:0;background:#f5f6fa;}
+header{background:#2e7d32;color:white;padding:15px;text-align:center;position:sticky;top:0;z-index:100;}
+header h1{margin:0;font-size:24px;}
+header input{margin-top:10px;width:90%;padding:8px;font-size:16px;border-radius:5px;border:none;}
+main{padding:20px;max-width:1000px;margin:auto;}
+.form{background:white;padding:15px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:20px;}
+.form input, .form button{width:100%;padding:10px;margin:5px 0;font-size:16px;border-radius:5px;border:1px solid #ccc;}
+.form button{background:#2e7d32;color:white;border:none;cursor:pointer;font-weight:bold;}
+.clientes{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:15px;}
+.card{background:white;padding:15px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.15);position:relative;}
+.card h3{margin:0 0 5px 0;font-size:20px;display:flex;justify-content:space-between;align-items:center;}
+.card p{margin:3px 0;font-size:14px;color:#555;}
+.card-actions{margin-top:10px;display:flex;justify-content:space-between;flex-wrap:wrap;}
+.card-actions button{padding:6px 10px;border:none;border-radius:5px;cursor:pointer;font-size:14px;margin-top:3px;display:flex;align-items:center;gap:3px;}
+.card-actions .danger{background:#d32f2f;color:white;}
+.card-actions .edit{background:#1976d2;color:white;}
+.card-actions .abonar{background:#388e3c;color:white;}
+.card-actions .deuda{background:#fbc02d;color:white;}
+.progress-container{width:100%;height:12px;background:#ddd;border-radius:6px;overflow:hidden;margin-top:5px;}
+.progress-bar div{height:100%;display:inline-block;}
+.ultimo-abono{font-size:12px;color:#888;margin-top:3px;}
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);justify-content:center;align-items:center;z-index:200;}
+.modal-content{background:white;padding:20px;border-radius:10px;width:95%;max-width:500px;position:relative;overflow:auto;max-height:90%;}
+.modal-buttons{display:flex;justify-content:space-between;margin-top:10px;flex-wrap:wrap;}
+.modal-buttons button{flex:1;margin:3px;padding:8px;border:none;border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:3px;}
+.modal-buttons .danger{background:#d32f2f;color:white;}
+.modal-buttons .abonar{background:#388e3c;color:white;}
+.modal-buttons .deuda{background:#fbc02d;color:white;}
+.modal-buttons .pdf{background:#1976d2;color:white;}
+.grafica-container{margin-top:30px;text-align:center;}
+.grafica-container canvas{max-width:400px;margin:auto;}
+.stats{display:flex;justify-content:space-around;margin-top:10px;font-weight:bold;}
+.notificacion-tarjeta{color:#d32f2f;font-weight:bold;margin-left:5px;}
+.calendario{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:10px;}
+.calendario div{height:25px;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:4px;color:white;}
+.calendario .abonado{background:#388e3c;}
+.calendario .sin-abono{background:#d32f2f;}
+.calendario .sin-deuda{background:#aaa;}
+.historial-item{display:flex;justify-content:space-between;margin:3px 0;font-size:13px;}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>👵 Abuelita - Clientes</h1>
+  <input id="search" placeholder="🔍 Buscar por nombre, producto o ubicación">
+</header>
+
+<main>
+  <section class="form">
+    <h2>➕ Nuevo cliente</h2>
+    <input id="nombre" placeholder="Nombre">
+    <input id="producto" placeholder="Qué vende">
+    <input id="ubicacion" placeholder="Ubicación">
+    <input id="deuda" type="number" placeholder="Monto inicial de deuda">
+    <button onclick="agregarCliente()">Guardar cliente</button>
+  </section>
+
+  <section class="clientes" id="clientes"></section>
+
+  <div class="grafica-container">
+    <canvas id="graficaDeudas"></canvas>
+    <div class="stats">
+      <span id="conDeuda">Con deuda: 0</span>
+      <span id="alDia">Al día: 0</span>
+    </div>
+  </div>
+</main>
+
+<!-- Modal -->
+<div class="modal" id="modal">
+  <div class="modal-content">
+    <h3 id="modalNombre"></h3>
+    <input id="monto" type="number" placeholder="Monto">
+    <div class="modal-buttons">
+      <button class="deuda" onclick="agregarDeuda()">➕ Deuda <i class="ri-money-dollar-box-line"></i></button>
+      <button class="abonar" onclick="abonarCuenta()">💵 Abonar <i class="ri-money-dollar-circle-line"></i></button>
+      <button class="pdf" onclick="imprimirPDF()">🖨️ Imprimir PDF</button>
+      <button class="danger" onclick="cerrarModal()">Cerrar <i class="ri-close-line"></i></button>
+    </div>
+    <div id="notificacion"></div>
+    <div id="historial"></div>
+    <div id="calendario" class="calendario"></div>
+  </div>
+</div>
+
+<script>
+let clientes = [];
+let clienteActual = null;
+let grafica = null;
+const DIAS_SIN_ABONO = 3;
+
+// Agregar cliente
+function agregarCliente(){
+  const nombre=document.getElementById('nombre').value.trim();
+  const producto=document.getElementById('producto').value.trim();
+  const ubicacion=document.getElementById('ubicacion').value.trim();
+  const deuda=Number(document.getElementById('deuda').value.trim()||0);
+  if(!nombre) return alert('Nombre requerido');
+  const nuevo={id:Date.now(),nombre,producto,ubicacion,cuentas:deuda>0?[{total:deuda,saldo:deuda,movimientos:[]}]:[]};
+  clientes.push(nuevo);
+  guardarLocal(); pintarClientes(); actualizarGrafica();
+  document.getElementById('nombre').value=''; document.getElementById('producto').value=''; document.getElementById('ubicacion').value=''; document.getElementById('deuda').value='';
+}
+
+// LocalStorage
+function guardarLocal(){ localStorage.setItem('clientes',JSON.stringify(clientes)); }
+function cargarLocal(){ clientes=JSON.parse(localStorage.getItem('clientes')||'[]'); pintarClientes(); actualizarGrafica(); }
+
+// Pintar clientes
+function pintarClientes(filtrados=null){
+  const div=document.getElementById('clientes'); div.innerHTML='';
+  const lista=filtrados||clientes;
+  lista.forEach(c=>{
+    const totalSaldo=c.cuentas.reduce((a,b)=>a+b.saldo,0);
+    let ultimaFecha=null;
+    c.cuentas.forEach(cc=>{ if(cc.movimientos.length>0){ const ultimo=new Date(cc.movimientos[cc.movimientos.length-1].fecha); if(!ultimaFecha||ultimo>ultimaFecha) ultimaFecha=ultimo; } });
+    const diasSinAbono=ultimaFecha?Math.floor((new Date()-ultimaFecha)/(1000*60*60*24)):(c.cuentas.length>0?DIAS_SIN_ABONO+1:0);
+    const alerta=diasSinAbono>=DIAS_SIN_ABONO?'<span class="notificacion-tarjeta">🔔</span>':'';
+
+    const divCard=document.createElement('div');
+    divCard.className='card';
+    divCard.innerHTML=`
+      <h3>${c.nombre}${alerta}</h3>
+      <p>${c.producto} - ${c.ubicacion}</p>
+      <p class="saldo" style="color:${totalSaldo>0?'#d32f2f':'#388e3c'}">Saldo pendiente: $${totalSaldo}</p>
+      <div class="progress-container">
+        <div class="progress-bar">${c.cuentas.map(cc=>{
+          const pct=cc.total?Math.round(((cc.total-cc.saldo)/cc.total)*100):0;
+          return `<div style="width:${pct}%;background:#388e3c;height:100%;display:inline-block;"></div>`;
+        }).join('')}</div>
+      </div>
+      <p class="ultimo-abono">${c.cuentas.map(cc=>{
+        if(cc.movimientos.length===0) return '';
+        const ultimo=cc.movimientos[cc.movimientos.length-1];
+        return `Último abono: ${ultimo.fecha}`;
+      }).join('')}</p>
+      <div class="card-actions">
+        <button class="deuda" onclick="abrirModal(${c.id})">💳 Pagos y Deudas</button>
+        <button class="edit" onclick="editarCliente(${c.id})">✏️ Editar</button>
+        <button class="danger" onclick="eliminarCliente(${c.id})">🗑️ Eliminar</button>
+      </div>
+    `;
+    div.appendChild(divCard);
+  });
+}
+
+// Editar / eliminar
+function editarCliente(id){
+  const c=clientes.find(cl=>cl.id===id); if(!c) return;
+  const nombre=prompt('Nombre:',c.nombre); if(nombre===null) return;
+  const producto=prompt('Producto:',c.producto); if(producto===null) return;
+  const ubicacion=prompt('Ubicación:',c.ubicacion); if(ubicacion===null) return;
+  c.nombre=nombre; c.producto=producto; c.ubicacion=ubicacion;
+  guardarLocal(); pintarClientes(); actualizarGrafica();
+}
+function eliminarCliente(id){ if(!confirm('¿Eliminar cliente?')) return; clientes=clientes.filter(c=>c.id!==id); guardarLocal(); pintarClientes(); actualizarGrafica(); }
+
+// Modal
+function abrirModal(id){
+  clienteActual=clientes.find(c=>c.id===id); if(!clienteActual) return;
+  document.getElementById('modalNombre').textContent=clienteActual.nombre;
+  document.getElementById('modal').style.display='flex';
+  cargarHistorial();
+}
+function cerrarModal(){ document.getElementById('modal').style.display='none'; document.getElementById('historial').innerHTML=''; document.getElementById('calendario').innerHTML=''; document.getElementById('notificacion').innerHTML=''; }
+
+// Deuda / Abono
+function agregarDeuda(){
+  const monto=Number(document.getElementById('monto').value.trim()||0);
+  if(monto<=0) return alert('Monto inválido');
+  if(clienteActual){ clienteActual.cuentas.push({total:monto,saldo:monto,movimientos:[]}); guardarLocal(); pintarClientes(); cargarHistorial(); actualizarGrafica(); document.getElementById('monto').value=''; }
+}
+function abonarCuenta(){
+  const monto=Number(document.getElementById('monto').value.trim()||0);
+  if(monto<=0) return alert('Monto inválido');
+  if(clienteActual && clienteActual.cuentas.length>0){
+    const cuenta=clienteActual.cuentas[clienteActual.cuentas.length-1];
+    cuenta.saldo=Math.max(0,cuenta.saldo-monto);
+    cuenta.movimientos.push({tipo:'abono',monto:monto,fecha:new Date().toLocaleDateString()});
+    guardarLocal(); pintarClientes(); cargarHistorial(); actualizarGrafica(); document.getElementById('monto').value='';
+  }
+}
+
+// Historial + calendario
+function cargarHistorial(){
+  const historialDiv=document.getElementById('historial'); historialDiv.innerHTML='';
+  const calendarioDiv=document.getElementById('calendario'); calendarioDiv.innerHTML='';
+  const notifDiv=document.getElementById('notificacion'); notifDiv.innerHTML='';
+  if(!clienteActual) return;
+
+  // Notificación de deuda
+  const totalSaldo=clienteActual.cuentas.reduce((a,b)=>a+b.saldo,0);
+  if(totalSaldo>0) notifDiv.textContent=`Cliente con deuda pendiente: $${totalSaldo}`; else notifDiv.textContent='Cliente al día';
+
+  // Historial
+  clienteActual.cuentas.forEach((cuenta,i)=>{
+    cuenta.movimientos.forEach(m=>{
+      const div=document.createElement('div'); div.className='historial-item';
+      div.textContent=`${m.tipo.toUpperCase()} $${m.monto}`;
+      const fechaSpan=document.createElement('span'); fechaSpan.textContent=m.fecha;
+      div.appendChild(fechaSpan);
+      historialDiv.appendChild(div);
+    });
+  });
+
+  // Calendario mes actual
+  const diasMes=new Date(new Date().getFullYear(), new Date().getMonth()+1,0).getDate();
+  for(let i=1;i<=diasMes;i++){
+    let colorClass='sin-deuda';
+    clienteActual.cuentas.forEach(cuenta=>{
+      cuenta.movimientos.forEach(m=>{
+        const diaMov=new Date(m.fecha).getDate();
+        if(diaMov===i) colorClass='abonado';
+      });
+    });
+    const diaDiv=document.createElement('div'); diaDiv.className=colorClass; diaDiv.title=`Día ${i}`;
+    calendarioDiv.appendChild(diaDiv);
+  }
+}
+
+// Gráfica
+function actualizarGrafica(){
+  const conDeuda=clientes.filter(c=>c.cuentas.reduce((a,b)=>a+b.saldo,0)>0);
+  const alDia=clientes.length-conDeuda.length;
+  document.getElementById('conDeuda').textContent=`Con deuda: ${conDeuda.length} (${conDeuda.map(c=>c.nombre).join(', ')})`;
+  document.getElementById('alDia').textContent=`Al día: ${alDia} (${clientes.filter(c=>c.cuentas.reduce((a,b)=>a+b.saldo,0)===0).map(c=>c.nombre).join(', ')})`;
+
+  const ctx=document.getElementById('graficaDeudas').getContext('2d');
+  if(grafica) grafica.destroy();
+  grafica=new Chart(ctx,{type:'bar',data:{labels:['Con deuda','Al día'],datasets:[{label:'Clientes',data:[conDeuda.length,alDia],backgroundColor:['#d32f2f','#388e3c']}]},options:{plugins:{legend:{display:false}},responsive:true}});
+}
+
+// Buscador inteligente
+document.getElementById('search').addEventListener('input',function(){
+  const q=this.value.toLowerCase().trim();
+  const filtrados=clientes.filter(c=>c.nombre.toLowerCase().includes(q)||
+                                     c.producto.toLowerCase().includes(q)||
+                                     c.ubicacion.toLowerCase().includes(q));
+  pintarClientes(filtrados);
+});
+
+// PDF / imprimir
+function imprimirPDF(){
+  if(!clienteActual) return;
+  let contenido = `<h2>${clienteActual.nombre} - Historial de Movimientos</h2><ul>`;
+  clienteActual.cuentas.forEach(cuenta=>{
+    cuenta.movimientos.forEach(m=>{
+      contenido += `<li>${m.fecha}: ${m.tipo.toUpperCase()} $${m.monto}</li>`;
+    });
+  });
+  contenido += '</ul>';
+  const win = window.open('', '', 'width=600,height=600');
+  win.document.write(contenido); win.document.close(); win.print();
+}
+
+// Inicial
+cargarLocal();
+</script>
+
+</body>
+</html>
